@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#2742C4">
+<title>כלכלת הבית</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <h1>כלכלת הבית</h1>
+    <select id="month" class="month-sel" aria-label="חודש" hidden></select>
+  </header>
+  <main id="view"><div class="auth"><span class="spin" aria-label="טוען"></span></div></main>
+</div>
+
+<button class="fab" id="fab" aria-label="הוספת תנועה ידנית" hidden>+</button>
+
+<nav class="tabs" id="tabs" aria-label="ניווט" hidden>
+  <div class="inner">
+    <a href="#home" data-v="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/></svg>ראשי</a>
+    <a href="#tx" data-v="tx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>תנועות<span class="badge" id="badge" hidden></span></a>
+    <a href="#import" data-v="import"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 15v4.5h16V15"/></svg>ייבוא</a>
+    <a href="#insights" data-v="insights"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/></svg>ניתוח</a>
+  </div>
+</nav>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<dialog id="addDlg">
+  <form id="addForm" novalidate>
+    <h3>תנועה חדשה</h3>
+    <div class="seg" role="radiogroup" aria-label="סוג">
+      <label><input type="radio" name="kind" value="expense" checked id="kindExp">הוצאה</label>
+      <label><input type="radio" name="kind" value="income" id="kindInc">הכנסה</label>
+    </div>
+    <label class="fieldset"><span>סכום ב-₪</span><input class="field amount-in" id="addAmount" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+    <label class="fieldset"><span>תיאור</span><input class="field" id="addDesc" placeholder="למשל: שוק, מתנה לחתונה" autocomplete="off"></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <label class="fieldset" style="flex:1 1 140px"><span>תאריך</span><input class="field" type="date" id="addDate"></label>
+      <label class="fieldset" style="flex:1 1 160px"><span>קטגוריה</span><select class="field" id="addCat"></select></label>
+    </div>
+    <p class="err" id="addErr" role="alert"></p>
+    <div class="actions"><button type="submit" class="btn primary">שמירה</button><button type="button" class="btn ghost" id="addCancel">ביטול</button></div>
+  </form>
+</dialog>
+
+<script src="js/parse.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

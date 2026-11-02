@@ -1,0 +1,13 @@
+# Never commit real financial files or backups to this public repository
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.json
+!manifest.webmanifest
+*-backup-*
+
+# Local tooling
+node_modules/
+.DS_Store
+Thumbs.db
