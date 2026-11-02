@@ -5,6 +5,7 @@
 *.pdf
 *.json
 !manifest.webmanifest
+!firebase.json
 *-backup-*
 
 # Local tooling
