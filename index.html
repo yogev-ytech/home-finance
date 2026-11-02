@@ -2,6 +2,14 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
+<script>
+  // The app lives on the same domain as the Google sign-in helper, so sign-in works in Safari/iOS.
+  // Old links (GitHub Pages, web.app) forward there.
+  (function () {
+    var home = 'home-finance-ytech.firebaseapp.com', h = location.hostname;
+    if (h !== home && h !== 'localhost' && h !== '127.0.0.1' && !/\.local$/.test(h)) location.replace('https://' + home + '/' + location.hash);
+  })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">

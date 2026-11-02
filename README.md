@@ -25,7 +25,7 @@
 2. ב-Authentication, Settings, Authorized domains: מוודאים ש-`yogev-ytech.github.io` ברשימה.
 3. האתר מתפרסם ב-Firebase Hosting בכתובת https://home-finance-ytech.firebaseapp.com. כל שינוי שנדחף ל-`main` עולה אוטומטית דרך `.github/workflows/deploy.yml`.
 4. הפרסום דורש סוד בשם `FIREBASE_SERVICE_ACCOUNT` ב-Settings, Secrets and variables, Actions: מפתח JSON של חשבון שירות עם התפקידים Firebase Hosting Admin ו-Service Usage Consumer בלבד.
-5. האפליקציה יושבת באותו דומיין כמו חלון ההתחברות של Google, וכך ההתחברות עובדת גם ב-Safari ובאייפון.
+5. האפליקציה יושבת באותו דומיין כמו חלון ההתחברות של Google, וכך ההתחברות עובדת גם ב-Safari ובאייפון. הכתובות הישנות (GitHub Pages ו-web.app) מעבירות אליה אוטומטית.
 
 ## עדכון כתובות מורשות
 
