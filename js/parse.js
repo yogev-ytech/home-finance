@@ -7,6 +7,8 @@ const Ledger = (() => {
     { id: 'subs', name: 'תקשורת ומנויים', color: '#2E9AA8' },
     { id: 'car', name: 'רכב ותחבורה', color: '#8C6D3B' },
     { id: 'health', name: 'בריאות ופארם', color: '#C2477A' },
+    { id: 'grooming', name: 'טיפוח', color: '#A66DD4' },
+    { id: 'blink', name: 'בלינק', color: '#E0607E' },
     { id: 'home', name: 'בית ומשק בית', color: '#6D8C3B' },
     { id: 'shopping', name: 'קניות וביגוד', color: '#B85C5C' },
     { id: 'leisure', name: 'פנאי ובילוי', color: '#C29A2E' },
@@ -29,6 +31,7 @@ const Ledger = (() => {
   const ISSUERS = { cal: 'כאל', isracard: 'ישראכרט', max: 'מקס', amex: 'אמריקן אקספרס', diners: 'דיינרס' };
 
   const SECTOR_MAP = [
+    ['קוסמטיק', 'grooming'], ['טיפוח', 'grooming'],
     ['מסעד', 'dining'], ['מזון', 'food'], ['סופרמרקט', 'food'], ['רפואה', 'health'], ['בריאות', 'health'], ['פארם', 'health'],
     ['ריהוט', 'home'], ['בית וגן', 'home'], ['ביטוח', 'insurance'], ['תקשורת', 'subs'], ['מחשב', 'subs'],
     ['רכב', 'car'], ['תחבורה', 'car'], ['דלק', 'car'], ['פנאי', 'leisure'], ['בילוי', 'leisure'], ['תיירות', 'leisure'],
@@ -45,6 +48,7 @@ const Ledger = (() => {
     ['insurance', ['ביטוח', 'כלל ', 'הראל', 'מגדל', 'הפניקס', 'מנורה', 'איילון', 'הכשרה']],
     ['subs', ['netflix', 'yes', 'hot', 'spotify', 'disney', 'adobe', 'apple', 'google', 'microsoft', 'youtube', 'icloud', 'openai', 'chatgpt', 'בזק', 'פרטנר', 'סלקום', 'גולן טלקום', 'הוט מובייל', 'פלאפון']],
     ['car', ['פז ', 'סונול', 'דור אלון', 'דלק ', 'yellow', 'חניון', 'חניה', 'פנגו', 'סלופארק', 'cellopark', 'כביש 6', 'רב קו', 'רכבת', 'וואש', 'wash', 'מוסך', 'gett', 'uber', 'yango']],
+    ['grooming', ['מספרה', 'מספרת', 'ציפורנ', 'קוסמטיק', 'מניקור', 'פדיקור', 'barber', 'nails', 'beauty']],
     ['health', ['סופר פארם', 'סופרפארם', 'super-pharm', 'superpharm', 'גוד פארם', 'מכבי', 'כללית', 'מאוחדת', 'לאומית', 'בית מרקחת', 'אופטיק']],
     ['home', ['איקאה', 'ikea', 'הום סנטר', 'אייס', 'נעמן', 'ורדינון', 'שטראוס מים', 'תמי4']],
     ['shopping', ['aliexpress', 'עלי אקספרס', 'amazon', 'אמזון', 'shein', 'קסטרו', 'זארה', 'zara', 'טרמינל x', 'ksp', 'באג', 'מחסני חשמל', 'איבורי']],
