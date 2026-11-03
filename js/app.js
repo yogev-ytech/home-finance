@@ -2,8 +2,11 @@ import { createStore } from './store.js';
 
 const L = window.Ledger;
 const VENDOR = new URL('../vendor/', import.meta.url).href;
-const ALL_CATS = [...L.EXPENSE_CATS, ...L.INCOME_CATS.filter(c => c.id !== 'internal')];
-const cat = id => ALL_CATS.find(c => c.id === id);
+const BUILTIN_CATS = [...L.EXPENSE_CATS, ...L.INCOME_CATS.filter(c => c.id !== 'internal')];
+const cat = id => BUILTIN_CATS.find(c => c.id === id) || (state.cats || []).find(c => c.id === id);
+const catOr = id => cat(id) || { name: 'קטגוריה שנמחקה', color: 'var(--muted)' };
+const CAT_COLORS = ['#A66DD4', '#E0607E', '#2E9AA8', '#D9773B', '#3B8C5A', '#5470C6', '#C29A2E', '#B85C5C', '#4A9BD9', '#8C6D3B'];
+const nextColor = () => CAT_COLORS.find(c => !(state.cats || []).some(x => x.color === c)) || CAT_COLORS[(state.cats || []).length % CAT_COLORS.length];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 20) : Math.random().toString(36).slice(2) + Date.now().toString(36));
 const r2 = n => Math.round(n * 100) / 100;
@@ -17,15 +20,16 @@ const issuerName = i => L.ISSUERS[i] || 'כרטיס אשראי';
 const isExcluded = id => !!(cat(id) || {}).excluded || id === 'internal';
 const $ = s => document.querySelector(s);
 
-let state = { tx: [], statements: [], imports: [], rules: {}, links: {} };
+let state = { tx: [], statements: [], imports: [], rules: {}, links: {}, cats: [] };
 let auth = { status: 'loading' };
 let view = 'home', month = null, txFilter = 'all', query = '', openTx = null, lastResults = [], busy = '';
+let catDraft = { name: '', kind: 'expense', color: null }, editCat = null, editDraft = null, catErr = '', edErr = '';
 
 // ---------- store ----------
 const store = createStore({
   onAuth: a => {
     auth = a.signedIn ? { status: 'loading', email: a.email, name: a.name } : { status: 'signedOut' };
-    if (!a.signedIn) { state = { tx: [], statements: [], imports: [], rules: {}, links: {} }; lastResults = []; month = null; }
+    if (!a.signedIn) { state = { tx: [], statements: [], imports: [], rules: {}, links: {}, cats: [] }; lastResults = []; month = null; }
     render();
   },
   onData: d => { state = d; auth.status = 'ready'; render(); },
@@ -44,7 +48,7 @@ function commit(ops) {
     throw e;
   });
 }
-const settingsOp = (rules, links) => ({ op: 'settings', rules: rules || state.rules, links: links || state.links });
+const settingsOp = (rules, links, cats) => ({ op: 'settings', rules: rules || state.rules, links: links || state.links, cats: cats || state.cats || [] });
 
 // ---------- derived data ----------
 function derive() {
@@ -187,14 +191,15 @@ async function restoreBackup(file) {
   const have = new Set(state.tx.map(t => t.id));
   const ops = [];
   for (const col of ['tx', 'statements', 'imports']) for (const d of (b[col] || [])) if (d && d.id && !(col === 'tx' && have.has(d.id))) ops.push({ op: 'set', col, id: d.id, data: d });
-  ops.push(settingsOp({ ...(b.rules || {}), ...state.rules }, { ...(b.links || {}), ...state.links }));
+  const cats = [...state.cats, ...(b.cats || []).filter(c => c && c.id && !state.cats.some(x => x.id === c.id))];
+  ops.push(settingsOp({ ...(b.rules || {}), ...state.rules }, { ...(b.links || {}), ...state.links }, cats));
   await commit(ops);
   const added = ops.filter(o => o.col === 'tx').length;
   return { ok: true, name: file.name, label: 'שחזור מגיבוי', added, dup: b.tx.length - added, review: 0, details: ['גיבוי מתאריך ' + fullDate((b.exportedAt || '').slice(0, 10))] };
 }
 
 function exportBackup() {
-  const data = { app: 'home-finance', version: 1, exportedAt: new Date().toISOString(), tx: state.tx, statements: state.statements, imports: state.imports, rules: state.rules, links: state.links };
+  const data = { app: 'home-finance', version: 1, exportedAt: new Date().toISOString(), tx: state.tx, statements: state.statements, imports: state.imports, rules: state.rules, links: state.links, cats: state.cats };
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -236,22 +241,71 @@ function undoImport(id) {
   commit(ops).catch(() => {});
 }
 
-function setCategory(id, c, always) {
+function setCategory(id, c, always, newCat) {
   const t = state.tx.find(x => x.id === id); if (!t) return;
   const ops = [{ op: 'set', col: 'tx', id: t.id, data: { ...t, cat: c || null, how: 'manual' } }];
+  let rules = null;
   if (always && c) {
     const k = L.norm(t.desc);
-    const rules = { ...state.rules, [k]: c };
+    rules = { ...state.rules, [k]: c };
     for (const o of state.tx) if (o !== t && o.kind === t.kind && L.norm(o.desc) === k && o.how !== 'manual') ops.push({ op: 'set', col: 'tx', id: o.id, data: { ...o, cat: c, how: 'rule' } });
-    ops.push(settingsOp(rules));
   }
+  if (rules || newCat) ops.push(settingsOp(rules, null, newCat ? [...state.cats, newCat] : null));
   commit(ops).catch(() => {});
 }
 
+function validateCatName(raw, exceptId) {
+  const name = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (!name) return { err: 'כתבו שם לקטגוריה.' };
+  if (name.length > 30) return { err: 'השם ארוך מדי. עד 30 תווים.' };
+  const taken = [...L.EXPENSE_CATS, ...L.INCOME_CATS, ...state.cats].some(c => c.id !== exceptId && L.norm(c.name) === L.norm(name));
+  if (taken) return { err: 'כבר יש קטגוריה בשם הזה.' };
+  return { name };
+}
+
+function deleteCategory(id) {
+  const ops = [];
+  for (const t of state.tx) if (t.cat === id) ops.push({ op: 'set', col: 'tx', id: t.id, data: { ...t, cat: null, how: 'none' } });
+  const rules = Object.fromEntries(Object.entries(state.rules).filter(([, v]) => v !== id));
+  ops.push(settingsOp(rules, null, state.cats.filter(c => c.id !== id)));
+  if (editCat === id) { editCat = null; editDraft = null; }
+  commit(ops).then(() => toast('הקטגוריה נמחקה.')).catch(() => {});
+}
+
 // ---------- views ----------
-function catOptions(kind, selected) {
-  const list = kind === 'income' ? L.INCOME_CATS : L.EXPENSE_CATS.filter(c => !c.system);
-  return '<option value="">בחר קטגוריה…</option>' + list.map(c => '<option value="' + c.id + '"' + (c.id === selected ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
+function catOptions(kind, selected, allowNew) {
+  const base = kind === 'income' ? L.INCOME_CATS : L.EXPENSE_CATS.filter(c => !c.system);
+  const custom = (state.cats || []).filter(c => (c.kind || 'expense') === kind).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  const opt = c => '<option value="' + c.id + '"' + (c.id === selected ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+  const list = custom.length ? '<optgroup label="הקטגוריות שלכם">' + custom.map(opt).join('') + '</optgroup><optgroup label="קטגוריות קבועות">' + base.map(opt).join('') + '</optgroup>' : base.map(opt).join('');
+  return '<option value="">בחר קטגוריה…</option>' + list + (allowNew ? '<option value="__new">+ קטגוריה חדשה…</option>' : '');
+}
+
+function swatches(target, selected) {
+  return '<div class="swatches" role="group" aria-label="צבע">' + CAT_COLORS.map(c => '<button type="button" class="swatch" data-act="swatch" data-t="' + target + '" data-c="' + c + '" aria-pressed="' + (c === selected) + '" aria-label="צבע" style="background:' + c + '"></button>').join('') + '</div>';
+}
+
+function viewCats() {
+  const used = {}; for (const t of state.tx) if (t.cat) used[t.cat] = (used[t.cat] || 0) + 1;
+  const list = state.cats.slice().sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  const color = catDraft.color || nextColor();
+  const rows = list.map(c => {
+    const n = used[c.id] || 0;
+    if (editCat === c.id) return '<div class="cat-row editing"><div class="cat-form">' +
+      '<input class="field" id="cat-edit-name" maxlength="30" aria-label="שם הקטגוריה" value="' + esc(editDraft.name) + '">' + swatches('edit', editDraft.color) +
+      (catErr ? '<p class="err" role="alert">' + esc(catErr) + '</p>' : '') +
+      '<div class="row"><button class="btn primary" data-act="cat-save" data-id="' + c.id + '">שמירה</button><button class="btn ghost" data-act="cat-cancel">ביטול</button></div></div></div>';
+    return '<div class="cat-row"><div class="name"><span class="dot" style="background:' + c.color + '"></span><span>' + esc(c.name) + '</span></div>' +
+      '<div class="muted small">' + (c.kind === 'income' ? 'הכנסה · ' : '') + n + ' תנועות</div>' +
+      '<div class="row"><button class="btn ghost small" data-act="cat-edit" data-id="' + c.id + '">עריכה</button><button class="btn danger small" data-act="cat-del" data-id="' + c.id + '" data-n="' + n + '">מחיקה</button></div></div>';
+  }).join('');
+  return '<section class="card" id="cats"><h2>קטגוריות <small>' + (list.length ? list.length + ' שהוספתם' : 'הוסיפו משלכם') + '</small></h2>' +
+    '<p class="small muted" style="margin:0 0 10px">קטגוריה שתוסיפו כאן תופיע בבחירת קטגוריה ובניתוח, לכל בני המשפחה. אפשר גם להוסיף ישר מתנועה, דרך "+ קטגוריה חדשה".</p>' +
+    (rows ? '<div class="cat-list">' + rows + '</div>' : '') +
+    '<div class="cat-form add"><div class="row"><input class="field" id="cat-new-name" maxlength="30" placeholder="שם קטגוריה חדשה, למשל: חוגים" aria-label="שם קטגוריה חדשה" value="' + esc(catDraft.name) + '">' +
+    '<select class="field" id="cat-new-kind" aria-label="סוג"><option value="expense"' + (catDraft.kind === 'expense' ? ' selected' : '') + '>הוצאה</option><option value="income"' + (catDraft.kind === 'income' ? ' selected' : '') + '>הכנסה</option></select></div>' +
+    swatches('new', color) + (catErr && !editCat ? '<p class="err" role="alert">' + esc(catErr) + '</p>' : '') +
+    '<div class="row"><button class="btn primary" data-act="cat-add">הוספת קטגוריה</button></div></div></section>';
 }
 
 function srcChip(t) {
@@ -266,14 +320,16 @@ function txRow(t, d) {
   let chip;
   if (isCard) chip = linked ? '<span class="chip ok">מוצלב עם הפירוט</span>' : '<span class="chip review">אין פירוט</span>';
   else if (!t.cat) chip = '<span class="chip review">' + (t.transfer ? 'העברה – לבדיקה' : 'לבדיקה') + '</span>';
-  else { const c = cat(t.cat) || { name: t.cat, color: 'var(--muted)' }; chip = '<span class="chip"><span class="dot" style="background:' + c.color + '"></span>' + esc(c.name) + '</span>'; }
+  else { const c = catOr(t.cat); chip = '<span class="chip"><span class="dot" style="background:' + c.color + '"></span>' + esc(c.name) + '</span>'; }
   const inst = L.installment(t.notes);
   const extra = [t.type && t.type !== 'רגילה' ? esc(t.type) : '', inst ? 'תשלום ' + inst.k + ' מתוך ' + inst.n : ''].filter(Boolean).map(x => '<span>' + x + '</span>').join('');
   const open = openTx === t.id;
   let editor = '';
   if (open && !isCard) {
     editor = '<div class="editor">' +
-      '<div class="row"><select class="field" id="ed-cat" aria-label="קטגוריה">' + catOptions(t.kind, t.cat) + '</select></div>' +
+      '<div class="row"><select class="field" id="ed-cat" aria-label="קטגוריה">' + catOptions(t.kind, t.cat, true) + '</select></div>' +
+      '<div class="row" id="ed-new-row" hidden><input class="field" id="ed-new-name" maxlength="30" placeholder="שם הקטגוריה החדשה" aria-label="שם הקטגוריה החדשה"></div>' +
+      '<p class="err" id="ed-err" role="alert">' + esc(edErr) + '</p>' +
       '<label class="check"><input type="checkbox" id="ed-always"' + (t.transfer ? '' : ' checked') + '><span>לסווג כך תמיד את "' + esc(t.desc) + '"' + (t.transfer ? ' (לא מומלץ להעברות, כל העברה היא למישהו אחר)' : '') + '</span></label>' +
       '<div class="row"><button class="btn primary" data-act="save-cat" data-id="' + t.id + '">שמירה</button><button class="btn ghost" data-act="close-ed">סגירה</button><button class="btn danger" data-act="del" data-id="' + t.id + '" style="margin-inline-start:auto">מחיקה</button></div></div>';
   } else if (open && isCard) {
@@ -320,7 +376,7 @@ function viewHome() {
     '<div class="stats"><div class="stat"><div class="lbl">הכנסות</div><div class="val pos">' + money(t.income) + '</div></div><div class="stat"><div class="lbl">הוצאות</div><div class="val">' + money(t.expense) + '</div></div><div class="stat left"><div class="lbl">נשאר</div><div class="val">' + money(left) + '</div></div></div>' +
     (recon ? '<section class="card"><h2>חיובי אשראי <small>הצלבה מול העו"ש</small></h2><div class="recon">' + recon + '</div></section>' : '') +
     '<section class="card"><h2>לאן הלך הכסף <small>' + esc(monthName(month)) + '</small></h2>' + (cats.length ? '<div class="bars">' + cats.map(([k, v]) => {
-      const c = k === 'review' ? { name: 'לבדיקה', color: 'var(--warn)' } : (cat(k) || { name: k, color: 'var(--muted)' });
+      const c = k === 'review' ? { name: 'לבדיקה', color: 'var(--warn)' } : catOr(k);
       return '<div class="bar-row"><div class="name"><span class="dot" style="background:' + c.color + '"></span><span>' + esc(c.name) + '</span></div><div>' + money(v) + '</div><div class="track"><div class="fill" style="width:' + Math.max(2, v / max * 100) + '%;background:' + c.color + '"></div></div></div>';
     }).join('') + '</div>' : '<p class="muted">אין הוצאות בחודש הזה.</p>') + '<p class="muted small" style="margin:12px 0 0">עסקאות אשראי משויכות לחודש שבו חויבו בבנק.</p></section>' +
     '<section class="card"><h2>אחרונות <button class="linkbtn small" data-go="tx">כל התנועות</button></h2><div class="list">' + recent.map(x => txRow(x, d)).join('') + '</div></section>';
@@ -364,6 +420,7 @@ function viewImport() {
       return '<div class="recon-row"><div><strong>' + esc(issuerName(s.issuer)) + '</strong> <span class="muted small">לחיוב ב-<span class="num">' + fullDate(s.chargeDate) + '</span></span></div><div>' + money(s.total, true) + '</div><div class="sub">' + s.count + ' עסקאות · ' + (linked ? '<span class="chip ok">מוצלב עם העו"ש</span>' : '<span class="chip">ממתין להצלבה</span>') + (s.sumMatches === false ? ' <span class="chip bad">סכום השורות שונה מהסיכום</span>' : '') + '</div></div>';
     }).join('') + '</div></section>' : '') +
     (imps.length ? '<section class="card"><h2>קבצים שיובאו</h2><div class="recon">' + imps.map(i => '<div class="recon-row"><div><strong>' + esc(i.label) + '</strong><div class="muted small" style="overflow-wrap:anywhere">' + esc(i.name) + ' · ' + i.added + ' תנועות' + (i.by ? ' · ' + esc(i.by) : '') + '</div></div><button class="btn ghost small" data-act="undo" data-id="' + i.id + '">הסרה</button></div>').join('') + '</div></section>' : '') +
+    viewCats() +
     '<section class="card"><h2>איך מורידים את הקבצים</h2><ol class="small" style="margin:0;padding-inline-start:20px;display:flex;flex-direction:column;gap:6px">' +
     '<li><strong>כרטיס אשראי:</strong> באתר של חברת האשראי (כאל, ישראכרט, מקס), במסך פירוט העסקאות, בוחרים ייצוא ל-Excel.</li>' +
     '<li><strong>עו"ש:</strong> באתר הבנק, במסך תנועות בחשבון, בוחרים טווח תאריכים ושומרים כ-PDF.</li>' +
@@ -386,7 +443,7 @@ function viewInsights() {
   const parts = [];
 
   parts.push('<section class="card"><h2>הוצאות לפי קטגוריה <small>' + esc(monthName(month)) + '</small></h2><div class="bars">' + rows.map(r => {
-    const c = cat(r.k) || { name: r.k, color: 'var(--muted)' }; const diff = r.a ? (r.v - r.a) / r.a : null;
+    const c = catOr(r.k); const diff = r.a ? (r.v - r.a) / r.a : null;
     const tag = diff == null ? '' : diff > 0.3 && r.v - r.a > 100 ? ' <span class="chip bad">+' + Math.round(diff * 100) + '%</span>' : diff < -0.3 && r.a - r.v > 100 ? ' <span class="chip ok">' + Math.round(diff * 100) + '%</span>' : '';
     return '<div class="bar-row"><div class="name"><span class="dot" style="background:' + c.color + '"></span><span>' + esc(c.name) + '</span></div><div>' + money(r.v) + tag + '</div><div class="track"><div class="fill" style="width:' + (r.v / max * 100) + '%;background:' + c.color + '"></div>' + (r.a ? '<div class="tick" style="right:calc(' + (r.a / max * 100) + '% - 1px)"></div>' : '') + '</div></div>';
   }).join('') + '</div>' + (prev.length ? '<div class="legend"><span><i></i>ממוצע ' + (prev.length === 1 ? 'החודש הקודם' : prev.length + ' החודשים הקודמים') + '</span></div>' : '<p class="muted small" style="margin:10px 0 0">כשיהיו נתונים מכמה חודשים, תראה כאן השוואה לממוצע.</p>') + '</section>');
@@ -425,7 +482,7 @@ function viewInsights() {
   if (inst.length) { const rest = inst.reduce((a, x) => a + x.t.amount * (x.i.n - x.i.k), 0); parts.push('<section class="card"><h2>תשלומים פתוחים <small>' + money(rest) + ' עוד לחיוב</small></h2><div class="list">' + inst.map(x => '<div class="insight"><div>' + esc(x.t.desc) + '</div><div>' + money(x.t.amount, true) + '</div><div class="sub">תשלום ' + x.i.k + ' מתוך ' + x.i.n + ' · נשארו ' + (x.i.n - x.i.k) + '</div></div>').join('') + '</div></section>'); }
 
   const inc = Object.entries(cur.incCat).sort((a, b) => b[1] - a[1]);
-  if (inc.length) parts.push('<section class="card"><h2>הכנסות <small>' + esc(monthName(month)) + '</small></h2><div class="list">' + inc.map(([k, v]) => '<div class="insight"><div>' + esc(k === 'review' ? 'לא מסווג' : (L.INCOME_CATS.find(c => c.id === k) || { name: k }).name) + '</div><div class="pos">' + money(v, true) + '</div></div>').join('') + '</div></section>');
+  if (inc.length) parts.push('<section class="card"><h2>הכנסות <small>' + esc(monthName(month)) + '</small></h2><div class="list">' + inc.map(([k, v]) => '<div class="insight"><div>' + esc(k === 'review' ? 'לא מסווג' : catOr(k).name) + '</div><div class="pos">' + money(v, true) + '</div></div>').join('') + '</div></section>');
 
   return parts.join('');
 }
@@ -453,10 +510,17 @@ function render() {
   $('#badge').hidden = !rev; $('#badge').textContent = rev;
   document.querySelectorAll('nav.tabs a').forEach(a => a.setAttribute('aria-current', a.dataset.v === view ? 'page' : 'false'));
   const html = view === 'tx' ? viewTx() : view === 'import' ? viewImport() : view === 'insights' ? viewInsights() : viewHome();
-  const qFocused = document.activeElement && document.activeElement.id === 'q';
-  const pos = qFocused ? document.activeElement.selectionStart : null;
+  const ae = document.activeElement;
+  const fid = ae && ae.id && $('#view').contains(ae) && ae.tagName === 'INPUT' ? ae.id : null;
+  const pos = fid ? ae.selectionStart : null;
+  const edKeep = $('#ed-cat') ? { v: $('#ed-cat').value, n: ($('#ed-new-name') || {}).value || '', a: ($('#ed-always') || {}).checked } : null;
   $('#view').innerHTML = html;
-  if (qFocused && $('#q')) { $('#q').focus(); try { $('#q').setSelectionRange(pos, pos); } catch (e) {} }
+  if (edKeep && $('#ed-cat')) {
+    if ([...$('#ed-cat').options].some(o => o.value === edKeep.v)) $('#ed-cat').value = edKeep.v;
+    $('#ed-new-row').hidden = $('#ed-cat').value !== '__new'; $('#ed-new-name').value = edKeep.n;
+    if ($('#ed-always')) $('#ed-always').checked = edKeep.a;
+  }
+  if (fid && document.getElementById(fid)) { const el = document.getElementById(fid); el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
 }
 
 function go(v) { if (location.hash !== '#' + v) location.hash = v; else { view = v; render(); } }
@@ -486,9 +550,52 @@ document.addEventListener('click', async e => {
   }
   if (act === 'signout') { await store.signOut(); return; }
   if (act === 'reload') { location.reload(); return; }
-  if (act === 'open') { openTx = openTx === b.dataset.id ? null : b.dataset.id; render(); return; }
+  if (act === 'open') { openTx = openTx === b.dataset.id ? null : b.dataset.id; edErr = ''; render(); return; }
   if (act === 'close-ed') { openTx = null; render(); return; }
-  if (act === 'save-cat') { const c = $('#ed-cat').value; if (!c) { $('#ed-cat').focus(); return; } setCategory(b.dataset.id, c, $('#ed-always').checked); openTx = null; return; }
+  if (act === 'save-cat') {
+    const c = $('#ed-cat').value;
+    const showErr = m => { edErr = m; $('#ed-err').textContent = m; };
+    if (!c) { showErr('בחרו קטגוריה.'); $('#ed-cat').focus(); return; }
+    if (c === '__new') {
+      const t = state.tx.find(x => x.id === b.dataset.id);
+      const v = validateCatName($('#ed-new-name').value);
+      if (v.err) { showErr(v.err); $('#ed-new-name').focus(); return; }
+      const nc = { id: 'c' + uid().slice(0, 12), name: v.name, color: nextColor(), kind: t && t.kind === 'income' ? 'income' : 'expense' };
+      edErr = ''; openTx = null;
+      setCategory(b.dataset.id, nc.id, $('#ed-always').checked, nc);
+      toast('נוספה קטגוריה: ' + v.name);
+      return;
+    }
+    edErr = ''; setCategory(b.dataset.id, c, $('#ed-always').checked); openTx = null; return;
+  }
+  if (act === 'swatch') {
+    if (b.dataset.t === 'edit' && editDraft) editDraft.color = b.dataset.c; else catDraft.color = b.dataset.c;
+    b.parentElement.querySelectorAll('.swatch').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    return;
+  }
+  if (act === 'cat-add') {
+    const v = validateCatName(catDraft.name);
+    if (v.err) { catErr = v.err; render(); const el = $('#cat-new-name'); if (el) el.focus(); return; }
+    const nc = { id: 'c' + uid().slice(0, 12), name: v.name, color: catDraft.color || nextColor(), kind: catDraft.kind };
+    catDraft = { name: '', kind: catDraft.kind, color: null }; catErr = '';
+    commit([settingsOp(null, null, [...state.cats, nc])]).then(() => toast('נוספה קטגוריה: ' + nc.name)).catch(() => {});
+    return;
+  }
+  if (act === 'cat-edit') { const c = state.cats.find(x => x.id === b.dataset.id); if (!c) return; editCat = c.id; editDraft = { name: c.name, color: c.color }; catErr = ''; render(); const el = $('#cat-edit-name'); if (el) el.focus(); return; }
+  if (act === 'cat-cancel') { editCat = null; editDraft = null; catErr = ''; render(); return; }
+  if (act === 'cat-save') {
+    const v = validateCatName(editDraft.name, b.dataset.id);
+    if (v.err) { catErr = v.err; render(); return; }
+    const cats = state.cats.map(c => c.id === b.dataset.id ? { ...c, name: v.name, color: editDraft.color || c.color } : c);
+    editCat = null; editDraft = null; catErr = '';
+    commit([settingsOp(null, null, cats)]).catch(() => {});
+    return;
+  }
+  if (act === 'cat-del') {
+    const n = +b.dataset.n;
+    if (!armed(b, 'מחיקה', n ? 'לחצו שוב: ' + n + ' תנועות יחזרו לבדיקה' : 'לחצו שוב למחיקה')) return;
+    deleteCategory(b.dataset.id); return;
+  }
   if (act === 'del') { if (!armed(b, 'מחיקה', 'לחץ שוב למחיקה')) return; openTx = null; commit([{ op: 'delete', col: 'tx', id: b.dataset.id }]).catch(() => {}); return; }
   if (act === 'wipe') {
     if (!armed(b, 'מחיקת כל הנתונים', 'לחץ שוב למחיקת הכל, לכל בני המשפחה')) return;
@@ -506,8 +613,23 @@ document.addEventListener('click', async e => {
   if (act === 'export') { exportBackup(); return; }
 });
 
-document.addEventListener('input', e => { if (e.target.id === 'q') { query = e.target.value; render(); } });
-document.addEventListener('change', e => { if (e.target.id === 'file') { handleFiles(e.target.files); e.target.value = ''; } });
+document.addEventListener('input', e => {
+  const id = e.target.id;
+  if (id === 'q') { query = e.target.value; render(); return; }
+  if (id === 'cat-new-name') { catDraft.name = e.target.value; if (catErr) { catErr = ''; const er = e.target.closest('.cat-form').querySelector('.err'); if (er) er.remove(); } return; }
+  if (id === 'cat-edit-name' && editDraft) { editDraft.name = e.target.value; return; }
+  if (id === 'ed-new-name') { edErr = ''; const er = $('#ed-err'); if (er) er.textContent = ''; }
+});
+document.addEventListener('change', e => {
+  const id = e.target.id;
+  if (id === 'file') { handleFiles(e.target.files); e.target.value = ''; return; }
+  if (id === 'cat-new-kind') { catDraft.kind = e.target.value; return; }
+  if (id === 'ed-cat') {
+    const isNew = e.target.value === '__new';
+    $('#ed-new-row').hidden = !isNew; edErr = ''; $('#ed-err').textContent = '';
+    if (isNew) $('#ed-new-name').focus();
+  }
+});
 ['dragenter', 'dragover'].forEach(t => document.addEventListener(t, e => { const d = e.target.closest && e.target.closest('#drop'); if (d) { e.preventDefault(); d.classList.add('over'); } }));
 document.addEventListener('dragleave', e => { const d = e.target.closest && e.target.closest('#drop'); if (d && !d.contains(e.relatedTarget)) d.classList.remove('over'); });
 document.addEventListener('drop', e => { const d = e.target.closest && e.target.closest('#drop'); if (d) { e.preventDefault(); d.classList.remove('over'); handleFiles(e.dataTransfer.files); } else if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });

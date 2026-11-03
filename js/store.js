@@ -29,7 +29,7 @@ export function createStore({ onAuth, onData, onError }) {
 
   function start() {
     stop();
-    data = { tx: [], statements: [], imports: [], rules: {}, links: {} };
+    data = { tx: [], statements: [], imports: [], rules: {}, links: {}, cats: [] };
     const ready = new Set();
     const emit = () => { if (ready.size === COLLECTIONS.length + 1) onData({ ...data }); };
     const fail = err => {
@@ -46,6 +46,7 @@ export function createStore({ onAuth, onData, onError }) {
       const s = snap.exists() ? snap.data() : {};
       data.rules = Object.fromEntries((s.rules || []).map(r => [r.k, r.cat]));
       data.links = Object.fromEntries((s.links || []).map(l => [l.s, l.b]));
+      data.cats = (s.cats || []).filter(c => c && c.id && c.name);
       ready.add('settings'); emit();
     }, fail));
   }
@@ -56,7 +57,7 @@ export function createStore({ onAuth, onData, onError }) {
   });
 
   // ops: [{ op: 'set' | 'delete', col: 'tx' | 'statements' | 'imports', id, data }]
-  //      [{ op: 'settings', rules: {k: cat}, links: {s: b} }]
+  //      [{ op: 'settings', rules: {k: cat}, links: {s: b}, cats: [{id, name, color, kind}] }]
   async function apply(ops) {
     for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
       const batch = writeBatch(db);
@@ -64,7 +65,8 @@ export function createStore({ onAuth, onData, onError }) {
         if (o.op === 'settings') {
           batch.set(settingsRef, {
             rules: Object.entries(o.rules || {}).map(([k, cat]) => ({ k, cat })),
-            links: Object.entries(o.links || {}).map(([s, b]) => ({ s, b }))
+            links: Object.entries(o.links || {}).map(([s, b]) => ({ s, b })),
+            cats: (o.cats || []).map(c => ({ id: c.id, name: c.name, color: c.color, kind: c.kind === 'income' ? 'income' : 'expense' }))
           });
         } else {
           const ref = doc(base, o.col, o.id);

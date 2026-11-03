@@ -170,3 +170,21 @@ dialog h3 { margin: 0; font-family: var(--font-display); font-size: 21px; }
 
 /* Toast */
 .toast { position: fixed; z-index: 20; left: 50%; transform: translateX(-50%); bottom: calc(140px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.2); }
+
+/* Category management */
+.cat-list { display: flex; flex-direction: column; margin-bottom: 12px; }
+.cat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.cat-row:first-child { border-top: 0; }
+.cat-row .name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+.cat-row .name span:last-child { overflow-wrap: anywhere; }
+.cat-row .row { grid-column: 1 / -1; display: flex; gap: 8px; }
+.cat-row.editing { display: block; }
+.cat-form { display: flex; flex-direction: column; gap: 10px; }
+.cat-form.add { background: var(--surface-2); border-radius: 10px; padding: 12px; }
+.cat-form .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.cat-form .row .field:first-child { flex: 1 1 180px; }
+.cat-form .err { margin: 0; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; padding: 0; box-shadow: inset 0 0 0 2px var(--surface); }
+.swatch[aria-pressed="true"] { border-color: var(--ink); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
